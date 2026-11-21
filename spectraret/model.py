@@ -28,6 +28,7 @@ import torch
 import torch.nn as nn
 
 from .config import DISEASES, N_CLASSES, Config
+from .coral import CoralHead
 from .csf import CSF
 from .dsp import DualStreamTokenizer
 from .dsr import DiseaseSpectralRouter
@@ -44,6 +45,7 @@ class Output:
     bands: torch.Tensor        # f (b, B, C, H, W)
     segmented: torch.Tensor    # LSD input (b, C, H, W)
     seg_logits: torch.Tensor | None
+    cum_logits: list | None = None   # CORAL head only: per disease (b, k_d - 1)
 
 
 class SpectraRet(nn.Module):
@@ -60,7 +62,8 @@ class SpectraRet(nn.Module):
         self.tok = DualStreamTokenizer(cfg)                                                 # DSP + band tokens
         self.csf = CSF(cfg.dim, cfg.csf_depth, cfg.csf_heads, cfg.csf_mlp_ratio) if cfg.use_csf else None
         self.dsr = DiseaseSpectralRouter(len(DISEASES), cfg.n_bands, cfg.dim, cfg.dsr, cfg.dsr_temperature)
-        self.heads = nn.ModuleList([GradingHead(cfg.dim, k, cfg.head_hidden, cfg.head_dropout) for k in N_CLASSES])
+        head_cls = {"softmax": GradingHead, "coral": CoralHead}[cfg.head_type]
+        self.heads = nn.ModuleList([head_cls(cfg.dim, k, cfg.head_hidden, cfg.head_dropout) for k in N_CLASSES])
 
     def train(self, mode: bool = True):
         super().train(mode)
@@ -99,4 +102,5 @@ class SpectraRet(nn.Module):
         x_seg, seg_logits = self.segment(x)
         f = self.bands(x_seg)
         logits, e, w = self.forward_from_bands(f)
-        return Output(logits, e, w, f, x_seg, seg_logits)
+        cum = [h.last_cum for h in self.heads] if self.cfg.head_type == "coral" else None
+        return Output(logits, e, w, f, x_seg, seg_logits, cum)

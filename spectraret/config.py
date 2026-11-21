@@ -20,6 +20,7 @@ ASSIGNMENTS = {
     "default": {"cnn": (0, 1, 2), "swin": (2, 3)},
     "inverted": {"cnn": (2, 3), "swin": (0, 1, 2)},
     "all_cnn": {"cnn": (0, 1, 2, 3), "swin": ()},
+    "swin_only": {"cnn": (), "swin": (0,)},          # standalone SwinECAT reference (n_bands = 1)
 }
 
 
@@ -39,6 +40,13 @@ class Config:
     raw_control: bool = False      # raw image in place of every band
     # DSP
     assignment: str = "default"
+    transformer: str = "swinecat"  # swinecat (final model) | compact (earlier model, Section 5.6 (iv))
+    compact_size: int = 96         # compact transformer: 96 x 96 input, two blocks, from scratch
+    compact_width: int = 128
+    compact_depth: int = 2
+    compact_heads: int = 4
+    compact_patch: int = 8
+    compact_mlp_ratio: float = 4.0
     # CSF and DSR
     use_csf: bool = False
     csf_depth: int = 2
@@ -47,6 +55,7 @@ class Config:
     dsr: str = "uniform"           # uniform (final model) | learned
     dsr_temperature: float = 1.0
     # heads and loss
+    head_type: str = "softmax"     # softmax (every reported model) | coral (ordinal head, collapsed)
     head_hidden: int = 128
     head_dropout: float = 0.3
     lambda_recon: float = 1e-3     # numerical check only: the term is zero up to rounding
@@ -54,13 +63,27 @@ class Config:
     pretrained: bool = True        # ImageNet weights for MobileNetV2 and Swin-V2-T
 
 
+_EARLIER = {"use_seg": False, "transformer": "compact"}
+
 PRESETS = {
+    # final model (Fig. 3) and its matched references (Section 6.1)
     "final": {},                                        # reported model
     "full": {"use_csf": True, "dsr": "learned"},        # every box of Fig. 3
     "learnable_lsd": {"lsd_learnable": True},
     "inverted": {"assignment": "inverted"},
     "all_cnn": {"assignment": "all_cnn"},
     "raw_control": {"raw_control": True, "use_seg": False},
+    "swinecat_only": {"raw_control": True, "use_seg": False, "assignment": "swin_only", "n_bands": 1},
+    "coral": {"head_type": "coral"},                    # ordinal CORAL head (Section 5.5)
+    # earlier model and the gate cascade P2-P4 (Table 12): frozen MobileNetV2 + compact
+    # transformer at 128 px, no segmentation stage
+    "earlier_control": {**_EARLIER, "raw_control": True, "assignment": "all_cnn"},   # no-spectral control
+    "earlier_lsd": {**_EARLIER, "assignment": "all_cnn"},                            # + fixed LSD
+    "earlier": {**_EARLIER},                                                         # + DSP (retained)
+    "earlier_csf": {**_EARLIER, "use_csf": True},                                    # + CSF
+    "earlier_dsr": {**_EARLIER, "use_csf": True, "dsr": "learned"},                  # + learned DSR
+    "earlier_inverted_dsr": {**_EARLIER, "use_csf": True, "dsr": "learned", "assignment": "inverted"},
+    "earlier_inverted": {**_EARLIER, "assignment": "inverted"},                      # swap-clean
 }
 
 

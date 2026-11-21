@@ -1,0 +1,11 @@
+torch>=2.0
+torchvision>=0.15
+numpy
+pillow
+scipy
+scikit-learn
+PyWavelets
+opencv-python-headless
+# optional
+timm      # InceptionResNetV2 and Xception baselines
+fvcore    # MAC counting (falls back to torch.utils.flop_counter)

@@ -80,6 +80,62 @@ def auroc(scores, labels):
     return float((ranks[labels].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
 
 
+def mce(y, probs, bins: int = 15):
+    """Maximum calibration error over the same 15 equal-width bins as ECE."""
+    conf, pred = probs.max(1), probs.argmax(1)
+    edges = np.linspace(0, 1, bins + 1)
+    gaps = [abs((pred[s] == y[s]).mean() - conf[s].mean())
+            for lo, hi in zip(edges[:-1], edges[1:]) if (s := (conf > lo) & (conf <= hi)).any()]
+    return float(max(gaps)) if gaps else 0.0
+
+
+def reliability_bins(y, probs, bins: int = 5, min_count: int = 2):
+    """Fig. 7a-b: (mean confidence, accuracy, count) of equal-width bins with >= min_count images."""
+    y, probs = np.asarray(y), np.asarray(probs, float)
+    conf, pred = probs.max(1), probs.argmax(1)
+    edges = np.linspace(0, 1, bins + 1)
+    out = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        s = (conf > lo) & (conf <= hi)
+        if s.sum() >= min_count:
+            out.append((float(conf[s].mean()), float((pred[s] == y[s]).mean()), int(s.sum())))
+    return out
+
+
+def risk_coverage(y, probs, unc):
+    """Fig. 7c-d: error rate of the retained cases when the most uncertain are referred first."""
+    order = np.argsort(unc, kind="stable")
+    err = (np.asarray(probs).argmax(1) != np.asarray(y))[order].astype(float)
+    n = len(err)
+    return np.arange(1, n + 1) / n, np.cumsum(err) / np.arange(1, n + 1)
+
+
+def referral(y, probs, unc, coverage: float = 0.8, focus_class=None):
+    """Refer the (1 - coverage) most uncertain cases. Relative error reduction of the retained
+    cases, and (optionally) the share of misclassified images of focus_class that were referred
+    (e.g. Level 4 DR: 0.57 for the head, 0.20 expected under random referral)."""
+    y, probs, unc = np.asarray(y), np.asarray(probs, float), np.asarray(unc, float)
+    wrong = probs.argmax(1) != y
+    n_keep = int(round(coverage * len(y)))
+    keep = np.argsort(unc, kind="stable")[:n_keep]
+    referred = np.ones(len(y), bool)
+    referred[keep] = False
+    e_all, e_keep = wrong.mean(), wrong[keep].mean()
+    out = {"coverage": coverage, "error_all": float(e_all), "error_retained": float(e_keep),
+           "relative_error_reduction": float((e_all - e_keep) / e_all) if e_all > 0 else 0.0}
+    if focus_class is not None:
+        sel = wrong & (y == focus_class)
+        out["referred_share_of_errors_in_class"] = float(referred[sel].mean()) if sel.any() else float("nan")
+    return out
+
+
+def shift_auroc(unc_in, unc_shift):
+    """AUROC of the uncertainty score for separating shifted from in-distribution images."""
+    s = np.concatenate([np.asarray(unc_in, float), np.asarray(unc_shift, float)])
+    lab = np.concatenate([np.zeros(len(unc_in), bool), np.ones(len(unc_shift), bool)])
+    return auroc(s, lab)
+
+
 def uncertainty_metrics(y, probs, k):
     y, probs = np.asarray(y), np.asarray(probs, float)
     pred = probs.argmax(1)
@@ -87,6 +143,34 @@ def uncertainty_metrics(y, probs, k):
     u_ent = -(np.clip(probs, 1e-12, 1) * np.log(np.clip(probs, 1e-12, 1))).sum(1)
     err = pred != y
     return {"accuracy": float((pred == y).mean()), "qwk": qwk(y, pred, k), "ece": ece(y, probs),
-            "brier": brier(y, probs), "nll": nll(y, probs),
+            "mce": mce(y, probs), "brier": brier(y, probs), "nll": nll(y, probs),
             "aurc_1-maxp": aurc(y, probs, u_max), "aurc_entropy": aurc(y, probs, u_ent),
             "err_auroc_1-maxp": auroc(u_max, err), "err_auroc_entropy": auroc(u_ent, err)}
+
+
+def macro_auc(y, probs):
+    """One-versus-rest macro-AUC over the classes present in y (Table 10)."""
+    y, probs = np.asarray(y), np.asarray(probs, float)
+    aucs = [auroc(probs[:, c], y == c) for c in range(probs.shape[1]) if 0 < (y == c).sum() < len(y)]
+    return float(np.mean(aucs)) if aucs else float("nan")
+
+
+def per_class_sensitivity(y, p, k):
+    """Recall of each class (e.g. Level 3 DR 0.734 vs 0.498 for the control)."""
+    c = confusion(y, p, k)
+    return [float(c[i, i] / c[i].sum()) if c[i].sum() else float("nan") for i in range(k)]
+
+
+def balanced_accuracy(y, p, k):
+    s = [v for v in per_class_sensitivity(y, p, k) if not math.isnan(v)]
+    return float(np.mean(s)) if s else 0.0
+
+
+def grading_report(y, probs, k):
+    """All grading metrics of the main comparison (Tables 9-10) for one disease."""
+    y, probs = np.asarray(y), np.asarray(probs, float)
+    p = probs.argmax(1)
+    return {"n": len(y), "qwk": qwk(y, p, k), "accuracy": float((p == y).mean()),
+            "macro_f1": macro_f1(y, p, k), "mcc": mcc(y, p, k), "macro_auc": macro_auc(y, probs),
+            "ece": ece(y, probs), "brier": brier(y, probs), "balanced_accuracy": balanced_accuracy(y, p, k),
+            "per_class_sensitivity": per_class_sensitivity(y, p, k)}

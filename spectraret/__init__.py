@@ -19,6 +19,20 @@
     train.py             Stage 1 and Stage 2 training, evaluation, checkpoint loading
     studies.py           explanation and uncertainty studies on a trained model
     selftest.py          random-tensor self-test of the connected model
+
+    compact_stream.py    earlier model: compact transformer (96 px, two blocks, from scratch)
+    coral.py             ordinal CORAL head and loss (tried, collapsed)
+    prestudy.py          spectral pre-study: CLAHE, db4 DWT band energy, Kruskal-Wallis, eta^2
+    probe.py             linear probe on frozen MobileNetV2 features (learnability screening)
+    splits.py            label encodings, stratified grouped folds, split check
+    stats.py             bootstrap CIs, Wilcoxon + Holm, Friedman / Nemenyi, gate rule
+    xai_input.py         grad x input, IG, occlusion, localization, reference maps, sanity checks
+    seg_uncertainty.py   MC-dropout Stage-1 decoder: pixel AUROC, uncertainty vs Dice, referral
+    jointseg.py          joint grading + segmentation (C1, C2, C3, C3a; U-Net / RMHA decoders)
+    baselines.py         frozen ImageNet CNN baselines and the Gate P1 small CNN
+    external.py          external evaluation: binary glaucoma, AMD detection, Messidor-2 checks
+    cost.py              parameters, MACs, CPU throughput
+    lsd_analysis.py      LSD exactness and band-operator frequency responses
 """
 from .config import DISEASES, N_CLASSES, PRESETS, Config
 from .model import Output, SpectraRet

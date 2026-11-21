@@ -4,6 +4,7 @@ from __future__ import annotations
 import torch.nn.functional as F
 
 from .config import Config
+from .coral import coral_loss
 from .dsr import routing_entropy
 
 
@@ -18,9 +19,24 @@ def masked_ce(logits_list, y, mask):
     return total / max(n, 1)
 
 
+def masked_coral(cum_list, y, mask):
+    """CORAL loss averaged over the labelled (image, disease) pairs (ordinal head, Section 5.5)."""
+    total, n = 0.0, 0
+    for d, cum in enumerate(cum_list):
+        m = mask[:, d]
+        if m.any():
+            total = total + coral_loss(cum[m], y[m, d], cum.shape[1] + 1, reduction="sum")
+            n += int(m.sum())
+    return total / max(n, 1)
+
+
 def spectraret_loss(out, y, mask, cfg: Config):
-    """Masked CE + reconstruction check (zero up to rounding) + routing entropy (learned DSR)."""
-    loss = masked_ce(out.logits, y, mask)
+    """Masked CE (or masked CORAL) + reconstruction check (zero up to rounding) + routing
+    entropy (learned DSR)."""
+    if cfg.head_type == "coral":
+        loss = masked_coral(out.cum_logits, y, mask)
+    else:
+        loss = masked_ce(out.logits, y, mask)
     if not cfg.raw_control and cfg.lambda_recon > 0:
         loss = loss + cfg.lambda_recon * (out.segmented - out.bands.sum(1)).pow(2).mean()
     if cfg.dsr == "learned" and cfg.lambda_sparsity > 0:

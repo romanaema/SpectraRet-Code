@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 
 from .cnn_stream import CNNStream
+from .compact_stream import CompactTransformerStream
 from .config import ASSIGNMENTS, Config
 from .swinecat_stream import SwinECATStream
 
@@ -28,7 +29,16 @@ class DualStreamTokenizer(nn.Module):
         if missing:
             raise ValueError(f"bands {sorted(missing)} are read by neither stream")
         self.cnn = CNNStream(cfg.dim, cfg.image_size, cfg.pretrained) if self.cnn_idx else None
-        self.swin = SwinECATStream(cfg.dim, cfg.swin_size, cfg.pretrained) if self.swin_idx else None
+        self.swin = None
+        if self.swin_idx:
+            if cfg.transformer == "swinecat":
+                self.swin = SwinECATStream(cfg.dim, cfg.swin_size, cfg.pretrained)
+            elif cfg.transformer == "compact":        # earlier model
+                self.swin = CompactTransformerStream(cfg.dim, cfg.compact_size, cfg.compact_width,
+                                                     cfg.compact_depth, cfg.compact_heads,
+                                                     cfg.compact_patch, cfg.compact_mlp_ratio)
+            else:
+                raise ValueError("transformer must be swinecat or compact")
         self.band_embed = nn.Parameter(nn.init.trunc_normal_(torch.empty(1, cfg.n_bands, cfg.dim), std=0.02))
 
     @staticmethod
